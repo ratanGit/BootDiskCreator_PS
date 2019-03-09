@@ -1,0 +1,87 @@
+clear
+#Set-ExecutionPolicy -ExecutionPolicy AllSigned -Scope CurrentUser -Force
+#Ratan Mohapatra - A script to Format USB Keyswith Boot images or for regular storage use
+#Last Update June 29 2018
+#----------------------------------------------------------------------------------------
+$capred = @{BackgroundColor = "Red"; ForegroundColor = "white"}
+$capgreen = @{BackgroundColor = "Green"; ForegroundColor = "white"}
+$capWhite = @{BackgroundColor = "Red"; ForegroundColor = "White"}
+#------------------FUNCTIONS---------------------------------------
+#1. FILE PICKER:
+Function pickFile(){
+        $initialDirectory = "$env:USERPROFILE\desktop"
+        [System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms") | Out-Null
+    
+        $OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $OpenFileDialog.initialDirectory = $initialDirectory
+        #$OpenFileDialog.filter = "CSV (*.csv)| *.csv"
+        $OpenFileDialog.ShowDialog() | Out-Null
+        return $OpenFileDialog.filename
+        }
+
+Function clnDisk($myDisk){
+    $myDisk | Set-Disk -IsReadOnly $false
+    $myDisk | Clear-Disk -RemoveData -RemoveOEM -Confirm:$false    
+    }
+#------------------------------------------------------------------
+
+$dt = get-date
+Write-Host @capgreen "`n $dt :Ratan,s USB DISK Management. `n`n.... found the following USB disk(s)!"
+
+$usr = $env:username
+
+Get-Disk | Where {$_.BusType -eq 'USB'}
+
+$dsk = [int](read-host -prompt "`n`What will be the Disk Number you would like to use ")
+$typ = [int](Read-Host -prompt "`n`n`tWhat kind of USB disk you like to create: `n`t1: Bootable to store an Image `n`t2: Normal Storage Use " )
+
+$myDisk = Get-Disk | Where {$_.BusType -eq 'USB' -and $_.number -eq $dsk} 
+
+if($mydisk){
+    switch($typ){
+    
+    #creating USB Bootable
+        1{ 
+            clnDisk $myDisk
+            # Create partition primary and format to FAT32
+            $volume = $myDisk | New-Partition -UseMaximumSize -AssignDriveLetter -IsActive:$true | Format-Volume -FileSystem ntfs -NewFileSystemLabel "Ratan" -Confirm:$false    
+            
+            # Mount iso
+            $iso = pickFile
+            if (Test-Path -Path "$($volume.DriveLetter):\") {
+                $miso = Mount-DiskImage -ImagePath $iso -StorageType ISO -PassThru
+                # Driver letter
+                $dl = ($miso | Get-Volume).DriveLetter
+                }
+            
+            # Copy ISO content to USB except install.wim (not sure to check ther eis no install.wim, I chanegd to boot.wim and also copied boot.wim)
+            if (Test-Path -Path "$($dl):\sources\boot.wim") {
+                & (Get-Command "$($env:systemroot)\system32\robocopy.exe") @(
+                    "$($dl):\",
+                    "$($volume.DriveLetter):\"
+                    ,'/S','/R:0','/Z','/XF','install.wim','/NP'
+                    )
+                }
+            $myDisk | Set-Disk -IsReadOnly $true            
+            
+            # Dismount ISO
+                Dismount-DiskImage -ImagePath $iso
+            # Eject USB
+                (New-Object -comObject Shell.Application).NameSpace(17).ParseName("$($volume.DriveLetter):").InvokeVerb('Eject')
+            }
+        
+    #creating a nomal USB formatted
+        2{
+            clnDisk $myDisk
+            $mydisk | New-Partition -UseMaximumSize -AssignDriveLetter -IsActive:$false | Format-Volume -FileSystem ntfs -NewFileSystemLabel $usr -Confirm:$false
+            }
+
+            }
+        }
+    
+else{
+    write-host @capred "darn it PS, grow up you...!"
+    exit
+    }
+
+Write-host @capgreen "Thank you for your patience!"
